@@ -1,0 +1,11 @@
+# .gitignore
+
+# Ignore the directories of the independent projects
+revlogica-data-validation/
+revlogica-item-authoring/
+revlogica-nlp-microservice/
+revlogica-orchestrator/
+
+# Ignore common build/cache files
+.env
+__pycache__/

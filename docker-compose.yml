@@ -1,0 +1,233 @@
+# =====================================
+# This file is part of the CodeDev project
+# Author: Ricel Quispe
+# =====================================
+
+# docker-compose.yml
+
+services:
+  # The FastAPI orchestrator service, the central brain of the system.
+  orchestrator:
+    build:
+      context: ./revlogica-orchestrator
+      dockerfile: Dockerfile
+      target: fastapi
+    command:
+      [
+        "poetry",
+        "run",
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+      ]
+    container_name: ${PROJECT_NAME}_orchestrator
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./revlogica-orchestrator:/app
+    depends_on:
+      fuseki:
+        condition: service_started
+      elasticsearch:
+        condition: service_healthy
+      nlp_microservice:
+        condition: service_started
+      existdb:
+        condition: service_healthy
+    networks:
+      - revlogica_network
+    env_file:
+      - ./.env
+    environment:
+      - EXISTDB_URL=${EXISTDB_URL}
+      - NLP_SERVICE_URL=${NLP_URL}
+      - FUSEKI_URL=${FUSEKI_URL}
+      - ELASTICSEARCH_URL=${ELASTICSEARCH_URL}
+
+  # The NLP microservice for Named Entity Recognition (NER).
+  nlp_microservice:
+    build:
+      context: ./revlogica-nlp-microservice
+      dockerfile: Dockerfile
+      target: fastapi
+    container_name: ${PROJECT_NAME}_nlp_microservice
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./revlogica-nlp-microservice:/app
+    networks:
+      - revlogica_network
+    env_file:
+      - ./.env
+
+  # The Django-based application enabling researchers to review and validate NLP-generated results.
+  researcher_validation:
+    build:
+      context: ./revlogica-data-validation
+      dockerfile: Dockerfile
+      target: fastapi
+    container_name: ${PROJECT_NAME}_researcher_validation
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./revlogica-data-validation:/app
+    networks:
+      - revlogica_network
+    env_file:
+      - ./.env
+
+  # The eXist-DB service for XML/TEI archiving.
+  existdb:
+    build:
+      context: ./revlogica-orchestrator
+      target: existdb-with-tools
+    container_name: ${PROJECT_NAME}_existdb
+    ports:
+      - "8081:8080"
+    volumes:
+      - existdb_data:/exist/data
+    networks:
+      - revlogica_network
+    # Use a separate .env file for database credentials
+    env_file:
+      - ./.env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/exist/rest/db/"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # The Apache Jena Fuseki service for the knowledge graph.
+  fuseki:
+    image: stain/jena-fuseki
+    container_name: ${PROJECT_NAME}_fuseki
+    ports:
+      - "3030:3030"
+    env_file:
+      - ./.env
+    environment:
+      - FUSEKI_ADMIN_PASSWORD=${FUSEKI_ADMIN_PASSWORD}
+    volumes:
+      - fuseki_data:/fuseki
+    networks:
+      - revlogica_network
+    command:
+      [
+        "/jena-fuseki/fuseki-server",
+        "--update",
+        "--loc=/revloglogic",
+        "/revloglogic",
+        "--port=3030",
+      ]
+
+  # The Elasticsearch service for full-text search and Kibana data.
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.1
+    container_name: ${PROJECT_NAME}_elasticsearch
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    environment:
+      - discovery.type=${ELASTIC_DISCOVERY_TYPE}
+      # Disable security for local development to simplify things
+      - xpack.security.enabled=${ELASTIC_SECURITY_ENABLED}
+      # Set heap size to avoid memory issues on local machines
+      - ES_JAVA_OPTS=${ELASTIC_JAVA_OPTS}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    networks:
+      - revlogica_network
+
+  # The Kibana service for visualizing and exploring Elasticsearch data.
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.14.1
+    container_name: ${PROJECT_NAME}_kibana
+    ports:
+      - "5601:5601"
+    networks:
+      - revlogica_network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      # Use the variable-based container name for better consistency
+      - ELASTICSEARCH_HOSTS=http://${PROJECT_NAME}_elasticsearch:9200
+    volumes:
+      - kibana_data:/usr/share/kibana/data
+
+  # The MariaDB service for providing the relational database backend used by Omeka S.
+  mariadb:
+    image: mariadb:10.6
+    container_name: ${PROJECT_NAME}_omeka_db
+    # Environment variables to configure the database
+    environment:
+      - MYSQL_ROOT_PASSWORD=${OMEKA_DB_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${OMEKA_DB_NAME}
+      - MYSQL_USER=${OMEKA_DB_USER}
+      - MYSQL_PASSWORD=${OMEKA_DB_PASSWORD}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    networks:
+      - revlogica_network
+    # Healthcheck to ensure MariaDB is ready before Omeka S starts
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-uroot",
+          "-p${OMEKA_DB_ROOT_PASSWORD}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # The Omeka S service for managing and publishing digital collections and metadata.
+  omeka:
+    build:
+      context: ./revlogica-item-authoring
+      target: omeka-with-config
+    container_name: ${PROJECT_NAME}_omeka_cms
+    env_file:
+      - ./.env
+    ports:
+      # Expose Omeka's web interface on port 8083
+      - "8083:80"
+    networks:
+      - revlogica_network
+    depends_on:
+      mariadb:
+        condition: service_healthy # Wait for MariaDB to be healthy
+
+# Define the network and volumes for data persistence
+networks:
+  revlogica_network:
+    driver: bridge
+
+# Persistent named volumes for storing service data so that databases,
+# search indexes, and application state are preserved across container restarts.
+volumes:
+  existdb_data:
+  fuseki_data:
+  elasticsearch_data:
+  kibana_data:
+  mariadb_data:
