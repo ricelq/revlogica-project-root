@@ -33,14 +33,25 @@ Follow these instructions to get the entire Revlogica platform running on your l
 
 ### Installation
 
-1.  **Clone the repository:**
+1.  **Clone the Root Project:**
+    This repository contains the main `docker-compose.yml` file and environment configuration.
 
     ```bash
-    git clone https://github.com/ricelq/revlogica-project-root
+    git clone https://github.com/ricelq/revlogica-project-root.git
     cd revlogica-project-root
     ```
 
-2.  **Create your environment file:**
+2.  **Clone the Microservice Repositories:**
+    From within the `revlogica-project-root` directory, clone each of the required microservices. The `docker-compose.yml` file expects them to be in this structure.
+
+    ```bash
+    git clone https://github.com/ricelq/revlogica-orchestrator.git
+    git clone https://github.com/ricelq/revlogica-item-authoring.git
+    git clone https://github.com/ricelq/revlogica-nlp-microservice.git
+    git clone https://github.com/ricelq/revlogica-data-validation.git
+    ```
+
+3.  **Create Your Environment File:**
     Copy the example environment file and fill in your specific configuration details for all services.
 
     ```bash
@@ -49,7 +60,7 @@ Follow these instructions to get the entire Revlogica platform running on your l
 
     Now, edit the `.env` file with your credentials and settings.
 
-3.  **Build and run the containers:**
+4.  **Build and Run the Containers:**
     This command will build the images and start all the services defined in the `docker-compose.yml` file.
 
     ```bash
@@ -58,7 +69,7 @@ Follow these instructions to get the entire Revlogica platform running on your l
 
     The initial build may take some time as it needs to download all the base images and install dependencies for each service.
 
-4.  **Service-specific setup:**
+5.  **Service-Specific Setup:**
     Some services may require additional setup steps, such as database migrations or creating an admin user. Please refer to the `README.md` file within each service's directory for specific instructions.
 
     - Example for `revlogica-data-validation`:
@@ -72,6 +83,12 @@ Follow these instructions to get the entire Revlogica platform running on your l
 ## Usage
 
 Once the containers are running, the different services will be accessible at their respective ports. Please refer to the `docker-compose.yml` file and the individual service documentation for specific URLs and ports.
+
+To interact with the main orchestrator API, you can use the interactive Swagger documentation available at:
+
+- **Orchestrator API (Swagger UI):** [http://localhost:8000/doc](http://localhost:8000/doc)
+
+This interface allows you to view all available endpoints, test them directly from your browser, and see the expected request/response models.
 
 ## License
 
